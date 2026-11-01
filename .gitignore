@@ -1,0 +1,6 @@
+/band-magic-id3
+*.mp3
+*.m4a
+*.wav
+.DS_Store
+!id3/testdata/*.mp3
