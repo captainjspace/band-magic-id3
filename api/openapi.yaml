@@ -1,0 +1,353 @@
+openapi: 3.0.3
+info:
+  title: band-magic-id3
+  version: 1.0.0
+  description: |
+    DRAFT — SUPERSEDED, do not build against. Written for a GCS-path API; the
+    seam has since moved: the caller's own system handles GCS and sends the
+    file here; this service tags it and returns the tagged file. The Doc,
+    Credits, LangText, PictureInfo and Error schemas carry over; the
+    path/generation operations do not.
+
+    Tagging engine over object storage. Reads, merges and writes ID3v2.4 (MP3)
+    and iTunes (M4A) tags on one object per request, archives the previous tags
+    beside it, and returns JSON. It stores no documents; the caller persists
+    what it returns.
+
+    This file is the contract. Requests are validated against it (unknown
+    fields are rejected) and every response conforms to it.
+
+    Auth: Cloud Run IAM. Send a Google ID token for the service URL as
+    `Authorization: Bearer <token>`; the service itself does no auth.
+servers:
+  - url: /
+paths:
+  /healthz:
+    get:
+      operationId: health
+      responses:
+        "200":
+          description: Service is up.
+          content:
+            text/plain:
+              schema: {type: string}
+  /v1/merge:
+    post:
+      operationId: merge
+      summary: Merge layers into one tag document. No storage access.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/MergeRequest"}
+      responses:
+        "200":
+          description: The merged document.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/MergeResponse"}
+        "400": {$ref: "#/components/responses/Error"}
+        "500": {$ref: "#/components/responses/Error"}
+  /v1/read:
+    post:
+      operationId: read
+      summary: Read the tags currently on an object.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ReadRequest"}
+      responses:
+        "200":
+          description: The object's tags.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ReadResponse"}
+        "400": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+        "413": {$ref: "#/components/responses/Error"}
+        "500": {$ref: "#/components/responses/Error"}
+  /v1/preview:
+    post:
+      operationId: preview
+      summary: Everything /v1/tag does except writing. Nothing is changed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/TagRequest"}
+      responses:
+        "200":
+          description: What would be written.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/PreviewResponse"}
+        "400": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+        "413": {$ref: "#/components/responses/Error"}
+        "500": {$ref: "#/components/responses/Error"}
+  /v1/tag:
+    post:
+      operationId: tag
+      summary: Tag one object and replace it.
+      description: |
+        Downloads the object, reads its current tags (`before`), embeds the
+        cover (scaled to 300x300) and lyrics, writes the merged layers, reads
+        the result back, then puts, in this order, each with a generation
+        precondition: the archive `song-id3-architect.tar.gz` (with `before`
+        and the supplied document appended), the tagged object, the read-back
+        `ID3-<name>.json` (`ID3-<name>.m4a.json` for M4A) and, when one was
+        made, the `<cover>_300x300` copy. If the archive or object put fails
+        nothing after it is written. The MP3 and M4A of a song are separate
+        requests.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/TagRequest"}
+      responses:
+        "200":
+          description: Tagged.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/TagResponse"}
+        "400": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+        "413": {$ref: "#/components/responses/Error"}
+        "500": {$ref: "#/components/responses/Error"}
+
+components:
+  responses:
+    Error:
+      description: Request failed.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+
+  schemas:
+    AudioPath:
+      description: |
+        Object path inside the bucket, as stored in the app's `catalog.path`.
+        Relative, no `.` or `..` segments, must end in .mp3 or .m4a. The service
+        may also require a configured prefix.
+      type: string
+      minLength: 5
+      maxLength: 1024
+      pattern: '^[^/].*\.(mp3|m4a)$'
+    AssetPath:
+      description: Object path of a cover image (.jpg, .jpeg, .png) or lyrics file (.txt). Same rules as AudioPath.
+      type: string
+      minLength: 5
+      maxLength: 1024
+      pattern: '^[^/].*\.(jpg|jpeg|png|txt)$'
+    Generation:
+      description: Object generation (GCS) or modification time in ns (local folder).
+      type: integer
+      format: int64
+
+    MergeRequest:
+      type: object
+      additionalProperties: false
+      required: [layers]
+      properties:
+        layers:
+          description: Band, album, song, track override — in that order. Later layers win; involved_people, musicians and custom_tags merge key by key; everything else is replaced.
+          type: array
+          minItems: 1
+          maxItems: 8
+          items: {$ref: "#/components/schemas/Doc"}
+    MergeResponse:
+      type: object
+      additionalProperties: false
+      required: [doc]
+      properties:
+        doc: {$ref: "#/components/schemas/Doc"}
+
+    ReadRequest:
+      type: object
+      additionalProperties: false
+      required: [path]
+      properties:
+        path: {$ref: "#/components/schemas/AudioPath"}
+    ReadResponse:
+      type: object
+      additionalProperties: false
+      required: [path, format, generation, doc]
+      properties:
+        path: {$ref: "#/components/schemas/AudioPath"}
+        format: {$ref: "#/components/schemas/Format"}
+        generation: {$ref: "#/components/schemas/Generation"}
+        doc: {$ref: "#/components/schemas/Doc"}
+
+    TagRequest:
+      type: object
+      additionalProperties: false
+      required: [path, layers]
+      properties:
+        path: {$ref: "#/components/schemas/AudioPath"}
+        generation:
+          allOf: [{$ref: "#/components/schemas/Generation"}]
+          description: If set, the object must still be at this generation (409 otherwise).
+        layers:
+          type: array
+          minItems: 1
+          maxItems: 8
+          items: {$ref: "#/components/schemas/Doc"}
+        cover:
+          allOf: [{$ref: "#/components/schemas/AssetPath"}]
+          description: Cover image to embed. Omit to embed none.
+        lyrics:
+          allOf: [{$ref: "#/components/schemas/AssetPath"}]
+          description: Lyrics text to embed when the merged layers have none. Omit for none.
+    PreviewResponse:
+      type: object
+      additionalProperties: false
+      required: [path, format, generation, before, applied]
+      properties:
+        path: {$ref: "#/components/schemas/AudioPath"}
+        format: {$ref: "#/components/schemas/Format"}
+        generation: {$ref: "#/components/schemas/Generation"}
+        before: {$ref: "#/components/schemas/Doc"}
+        applied: {$ref: "#/components/schemas/Doc"}
+    TagResponse:
+      type: object
+      additionalProperties: false
+      required: [path, format, generation, before, applied, read_back, cover, lyrics, read_back_path, archive_path]
+      properties:
+        path: {$ref: "#/components/schemas/AudioPath"}
+        format: {$ref: "#/components/schemas/Format"}
+        generation:
+          allOf: [{$ref: "#/components/schemas/Generation"}]
+          description: The object's new generation. Store it to detect later changes.
+        before: {$ref: "#/components/schemas/Doc"}
+        applied: {$ref: "#/components/schemas/Doc"}
+        read_back: {$ref: "#/components/schemas/Doc"}
+        cover: {$ref: "#/components/schemas/AssetRef"}
+        lyrics: {$ref: "#/components/schemas/AssetRef"}
+        read_back_path: {type: string}
+        archive_path: {type: string}
+
+    Format:
+      type: string
+      enum: [mp3, m4a]
+    AssetRef:
+      description: The asset that was embedded; null when none.
+      type: object
+      nullable: true
+      additionalProperties: false
+      required: [path, sha256]
+      properties:
+        path: {type: string}
+        sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error, code]
+      properties:
+        error: {type: string}
+        code:
+          type: string
+          enum: [bad_request, not_found, conflict, too_large, internal]
+
+    Doc:
+      description: |
+        A tag document. `cover_art` is read-only: it appears in responses and is
+        rejected in requests (send the image as TagRequest.cover instead).
+      type: object
+      additionalProperties: false
+      properties:
+        title: {type: string}
+        artist: {type: string}
+        album: {type: string}
+        album_artist: {type: string}
+        genre: {type: string}
+        year: {type: string, pattern: '^[0-9]{4}$'}
+        release_date:
+          description: ID3v2.4 timestamp, yyyy, yyyy-MM or yyyy-MM-dd.
+          type: string
+          pattern: '^[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?$'
+        track_number: {type: integer, minimum: 1}
+        track_total: {type: integer, minimum: 1}
+        disc_number: {type: integer, minimum: 1}
+        disc_total: {type: integer, minimum: 1}
+        composer: {type: string}
+        lyricist: {type: string}
+        isrc: {type: string}
+        copyright: {type: string}
+        publisher: {type: string}
+        encoded_by: {type: string}
+        encoder_settings: {type: string}
+        bpm: {type: string, pattern: '^[0-9]+$'}
+        title_sort: {type: string}
+        artist_sort: {type: string}
+        album_sort: {type: string}
+        album_artist_sort: {type: string}
+        composer_sort: {type: string}
+        grouping: {type: string}
+        subtitle: {type: string}
+        website: {type: string}
+        album_website: {type: string}
+        comment: {type: string}
+        comments:
+          type: array
+          items: {$ref: "#/components/schemas/LangText"}
+        lyrics: {type: string}
+        lyrics_sections:
+          type: array
+          items: {$ref: "#/components/schemas/LangText"}
+        involved_people: {$ref: "#/components/schemas/Credits"}
+        musicians: {$ref: "#/components/schemas/Credits"}
+        unique_file_identifiers:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [owner_identifier, identifier]
+            properties:
+              owner_identifier: {type: string, minLength: 1}
+              identifier: {type: string, pattern: '^([0-9a-f]{2})+$', description: Hex bytes.}
+        custom_tags:
+          description: Free-form TXXX (MP3) / iTunes freeform (M4A) tags.
+          type: object
+          additionalProperties: {type: string}
+        private_frames:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [owner_identifier, data_hex]
+            properties:
+              owner_identifier: {type: string, minLength: 1}
+              data_hex: {type: string, pattern: '^([0-9a-f]{2})+$'}
+        cover_art:
+          readOnly: true
+          type: array
+          items: {$ref: "#/components/schemas/PictureInfo"}
+    LangText:
+      type: object
+      additionalProperties: false
+      required: [language, description, text]
+      properties:
+        language: {type: string, pattern: '^[a-z]{3}$', description: ISO 639-2, e.g. eng.}
+        description: {type: string}
+        text: {type: string}
+    Credits:
+      description: Role (snake_case, e.g. recording_engineer) → names, one per entry.
+      type: object
+      additionalProperties:
+        type: array
+        minItems: 1
+        items: {type: string, minLength: 1}
+    PictureInfo:
+      description: An embedded picture. Image bytes are never returned.
+      type: object
+      additionalProperties: false
+      required: [type, mime_type, description, size, sha256]
+      properties:
+        type: {type: integer, minimum: 0, maximum: 20, description: APIC picture type; 3 = front cover.}
+        mime_type: {type: string, enum: [image/jpeg, image/png]}
+        description: {type: string}
+        size: {type: integer}
+        sha256: {type: string, pattern: '^[0-9a-f]{64}$'}

@@ -14,15 +14,32 @@ import (
 // them with later layers winning, and decodes the result into a Doc.
 // A layer that is missing or does not parse is an error, never skipped.
 func Resolve(paths ...string) (Doc, error) {
-	merged := map[string]any{}
+	layers := make([]map[string]any, 0, len(paths))
 	for _, p := range paths {
 		layer, err := LoadLayer(p)
 		if err != nil {
 			return Doc{}, err
 		}
-		merged = Merge(merged, layer)
+		layers = append(layers, layer)
+	}
+	return ResolveLayers(layers...)
+}
+
+// ResolveLayers merges already-loaded layers (e.g. JSON request bodies or
+// Firestore docs) the same way Resolve merges files.
+func ResolveLayers(layers ...map[string]any) (Doc, error) {
+	merged := map[string]any{}
+	for _, l := range layers {
+		merged = Merge(merged, unwrap(l))
 	}
 	return DocFromMap(merged)
+}
+
+func unwrap(m map[string]any) map[string]any {
+	if inner, ok := m["audio_metadata"].(map[string]any); ok {
+		return inner
+	}
+	return m
 }
 
 // LoadLayer reads one YAML or JSON layer (JSON is YAML) into a map,
@@ -44,10 +61,7 @@ func LoadLayer(path string) (map[string]any, error) {
 	if m == nil {
 		return map[string]any{}, nil
 	}
-	if inner, ok := m["audio_metadata"].(map[string]any); ok {
-		return inner, nil
-	}
-	return m, nil
+	return unwrap(m), nil
 }
 
 // nodeValue converts a YAML node to plain values. Unlike a straight decode it
@@ -95,6 +109,11 @@ func nodeValue(n *yaml.Node) (any, error) {
 		}
 		return m, nil
 	}
+	// Digit strings that aren't really numbers (UPCs, IDs) keep their exact
+	// text: a leading zero would read as octal, and long ones lose precision.
+	if (n.Tag == "!!int" || n.Tag == "!!float") && allDigits(n.Value) && ((len(n.Value) > 1 && n.Value[0] == '0') || len(n.Value) > 15) {
+		return n.Value, nil
+	}
 	var v any
 	if err := n.Decode(&v); err != nil {
 		return n.Value, nil
@@ -127,4 +146,13 @@ func DocFromMap(m map[string]any) (Doc, error) {
 		return d, err
 	}
 	return d, json.Unmarshal(b, &d)
+}
+
+func allDigits(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return s != ""
 }

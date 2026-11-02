@@ -70,7 +70,7 @@ type Picture struct {
 
 type UFID struct {
 	Owner      string `json:"owner_identifier"`
-	Identifier string `json:"identifier"` // hex
+	Identifier Text   `json:"identifier"` // hex; a bare YAML number is fine
 }
 
 type Private struct {

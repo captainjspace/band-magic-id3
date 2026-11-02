@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: band-magic-id3
+  labels:
+    app: band-magic-id3
+spec:
+  type: ClusterIP
+  selector:
+    app: band-magic-id3
+  ports:
+    - port: 80
+      targetPort: 8080

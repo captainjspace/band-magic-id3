@@ -99,7 +99,7 @@ func ReadMP3(path string) (Doc, error) {
 
 	for _, f := range tag.GetFrames("UFID") {
 		if u, ok := f.(id3v2.UFIDFrame); ok {
-			d.UniqueFileIDs = append(d.UniqueFileIDs, UFID{u.OwnerIdentifier, hex.EncodeToString(u.Identifier)})
+			d.UniqueFileIDs = append(d.UniqueFileIDs, UFID{u.OwnerIdentifier, Text(hex.EncodeToString(u.Identifier))})
 		}
 	}
 	for _, f := range tag.GetFrames("TXXX") {
@@ -169,7 +169,10 @@ func WriteMP3(path string, d Doc, clear bool) error {
 	setText(tag, "TMCL", writePeople(d.Musicians))
 
 	for _, u := range d.UniqueFileIDs {
-		id, err := hex.DecodeString(u.Identifier)
+		if u.Owner == "" || u.Identifier == "" {
+			continue
+		}
+		id, err := hex.DecodeString(string(u.Identifier))
 		if err != nil {
 			return fmt.Errorf("unique_file_identifiers %q: %w", u.Owner, err)
 		}

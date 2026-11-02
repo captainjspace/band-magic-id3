@@ -4,3 +4,5 @@
 *.wav
 .DS_Store
 !id3/testdata/*.mp3
+/bin
+.envrc.bak

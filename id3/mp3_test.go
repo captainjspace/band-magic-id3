@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"github.com/captainjspace/band-magic-id3/internal/testaudio"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -15,18 +16,7 @@ import (
 	"testing"
 )
 
-// silentMP3 writes one second of silence: MPEG-1 Layer III, 128 kbps,
-// 44.1 kHz frames (417 bytes) with zeroed side info. No real recordings
-// ever go in this repo.
-func silentMP3(t *testing.T, dir, name string) string {
-	t.Helper()
-	p := filepath.Join(dir, name)
-	frame := append([]byte{0xFF, 0xFB, 0x90, 0x00}, make([]byte, 413)...)
-	if err := os.WriteFile(p, bytes.Repeat(frame, 40), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return p
-}
+func silentMP3(t *testing.T, dir, name string) string { return testaudio.MP3(t, dir, name) }
 
 func TestWriteReadRoundTrip(t *testing.T) {
 	mp3 := silentMP3(t, t.TempDir(), "Test Song?.mp3")

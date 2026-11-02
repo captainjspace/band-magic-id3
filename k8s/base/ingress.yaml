@@ -1,0 +1,22 @@
+# Traefik (TLS = Traefik's default wildcard cert)
+# DNS: band.home.landman.rocks CNAME 
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: band-magic-id3
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: band.home.landman.rocks
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: band-magic-id3
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - band.home.landman.rocks

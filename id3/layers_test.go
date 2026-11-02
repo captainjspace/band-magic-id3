@@ -110,3 +110,14 @@ func TestPicTypeNames(t *testing.T) {
 		}
 	}
 }
+
+func TestDigitStringsKeepTheirText(t *testing.T) {
+	p := writeLayer(t, t.TempDir(), "ids.yaml", "audio_metadata:\n  isrc: 00112233\n  unique_file_identifiers:\n  - owner_identifier: test-upc\n    identifier: 012345678905\n  bpm: 110\n")
+	d, err := Resolve(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.ISRC != "00112233" || d.UniqueFileIDs[0].Identifier != "012345678905" || d.BPM != "110" {
+		t.Errorf("isrc %q identifier %q bpm %q", d.ISRC, d.UniqueFileIDs[0].Identifier, d.BPM)
+	}
+}

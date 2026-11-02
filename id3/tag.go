@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -17,6 +18,24 @@ import (
 // Python tool used so existing archives keep growing.
 const ArchiveName = "song-id3-architect.tar.gz"
 
+// formats dispatches on file extension; both share the same Doc.
+var formats = map[string]struct {
+	read  func(string) (Doc, error)
+	write func(string, Doc, bool) error
+}{
+	".mp3": {ReadMP3, WriteMP3},
+	".m4a": {ReadM4A, WriteM4A},
+}
+
+// Read returns the tags on an MP3 or M4A.
+func Read(path string) (Doc, error) {
+	f, ok := formats[strings.ToLower(filepath.Ext(path))]
+	if !ok {
+		return Doc{}, fmt.Errorf("%s: not an .mp3 or .m4a", path)
+	}
+	return f.read(path)
+}
+
 type Options struct {
 	Lookup
 	Keep bool // keep unmanaged frames (default clears, like --clear)
@@ -24,20 +43,26 @@ type Options struct {
 
 type Result struct {
 	Cover, Lyrics string
+	Before        Doc // tags on the file before this write
 	Written       Doc // what was handed to the writer
 	ReadBack      Doc // what is on the file afterwards
 	ReadBackPath  string
 }
 
-// Tag is the whole write pipeline for one MP3:
+// Tag is the whole write pipeline for one MP3 or M4A:
 // back up current tags → embed cover/lyrics → write → read back →
 // save ID3-<name>.json → append backup + supplied doc to the archive.
 func Tag(mp3 string, d Doc, opt Options) (Result, error) {
 	var r Result
-	before, err := ReadMP3(mp3)
+	format, ok := formats[strings.ToLower(filepath.Ext(mp3))]
+	if !ok {
+		return r, fmt.Errorf("%s: not an .mp3 or .m4a", mp3)
+	}
+	before, err := format.read(mp3)
 	if err != nil {
 		return r, err
 	}
+	r.Before = before
 	supplied := d
 
 	if r.Cover, r.Lyrics, err = ApplyAssets(mp3, &d, opt.Lookup); err != nil {
@@ -47,15 +72,19 @@ func Tag(mp3 string, d Doc, opt Options) (Result, error) {
 	if opt.DryRun {
 		return r, nil
 	}
-	if err := WriteMP3(mp3, d, !opt.Keep); err != nil {
+	if err := format.write(mp3, d, !opt.Keep); err != nil {
 		return r, err
 	}
-	if r.ReadBack, err = ReadMP3(mp3); err != nil {
+	if r.ReadBack, err = format.read(mp3); err != nil {
 		return r, err
 	}
 
 	dir := filepath.Dir(mp3)
+	// MP3 keeps the old ID3-<name> naming; an M4A beside it gets <name>.m4a.
 	base := strings.TrimSuffix(filepath.Base(mp3), filepath.Ext(mp3))
+	if ext := strings.ToLower(filepath.Ext(mp3)); ext != ".mp3" {
+		base += ext
+	}
 	r.ReadBackPath = filepath.Join(dir, "ID3-"+base+".json")
 	if err := writeReadOnly(r.ReadBackPath, mustJSON(r.ReadBack)); err != nil {
 		return r, err
