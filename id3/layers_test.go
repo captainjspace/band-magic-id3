@@ -79,6 +79,10 @@ func TestResolveFailsOnBadLayer(t *testing.T) {
 	if _, err := Resolve(filepath.Join(dir, "missing.yaml")); err == nil {
 		t.Error("missing layer must be an error")
 	}
+	twice := writeLayer(t, dir, "twice.yaml", "audio_metadata:\n  title: A\naudio_metadata:\n  title: B\n")
+	if _, err := Resolve(twice); err == nil || !strings.Contains(err.Error(), "appears 2 times") {
+		t.Errorf("duplicate audio_metadata: want error, got %v", err)
+	}
 }
 
 func TestLoadPythonReadBack(t *testing.T) {
