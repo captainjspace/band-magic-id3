@@ -53,7 +53,7 @@ var dedicatedRoles = map[string]string{"producer": "TPRO", "remixer": "TPE4"}
 
 // ReadMP3 returns the tags on an MP3 as a Doc (zero Doc if untagged).
 func ReadMP3(path string) (Doc, error) {
-	tag, err := id3v2.Open(path, id3v2.Options{Parse: true})
+	tag, err := openMP3(path, false)
 	if err != nil {
 		return Doc{}, err
 	}
@@ -122,7 +122,7 @@ func ReadMP3(path string) (Doc, error) {
 // WriteMP3 writes d as an ID3v2.4 tag. clear drops every existing frame
 // first (the Python tool's --clear); otherwise only managed frames change.
 func WriteMP3(path string, d Doc, clear bool) error {
-	tag, err := id3v2.Open(path, id3v2.Options{Parse: true})
+	tag, err := openMP3(path, true)
 	if err != nil {
 		return err
 	}

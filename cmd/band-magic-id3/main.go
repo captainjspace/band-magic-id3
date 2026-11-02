@@ -7,6 +7,7 @@
 //	band-magic-id3 write -album-dir DIR -song "where are you" -songs songs/ band.yaml album.yaml
 //	band-magic-id3 write -album-dir DIR -all -songs songs/ band.yaml album.yaml
 //	band-magic-id3 init [-dry-run] DIR   # covers/ + lyrics/ per track, loose images → covers/
+//	band-magic-id3 upgrade [-dry-run] file.mp3|DIR...   # old ID3v2.2/2.3 tags → v2.4, values kept
 //
 // Flags go before the layer files. Paths are taken as given, so names with
 // spaces or ? need only normal shell quoting.
@@ -25,15 +26,16 @@ import (
 )
 
 var commands = map[string]func([]string) error{
-	"read":  read,
-	"merge": merge,
-	"write": write,
-	"init":  initCmd,
+	"read":    read,
+	"merge":   merge,
+	"write":   write,
+	"init":    initCmd,
+	"upgrade": upgrade,
 }
 
 func main() {
 	if len(os.Args) < 2 || commands[os.Args[1]] == nil {
-		fmt.Fprintln(os.Stderr, "usage: band-magic-id3 read|merge|write|init [flags] [files]")
+		fmt.Fprintln(os.Stderr, "usage: band-magic-id3 read|merge|write|init|upgrade [flags] [files]")
 		os.Exit(2)
 	}
 	if err := commands[os.Args[1]](os.Args[2:]); err != nil {
@@ -188,6 +190,42 @@ func initCmd(args []string) error {
 		fmt.Println(l)
 	}
 	return err
+}
+
+func upgrade(args []string) error {
+	fs := flag.NewFlagSet("upgrade", flag.ExitOnError)
+	dryRun := fs.Bool("dry-run", false, "report each file's tag version, change nothing")
+	fs.Parse(args)
+	var failed int
+	for _, arg := range fs.Args() {
+		err := filepath.WalkDir(arg, func(f string, e os.DirEntry, err error) error {
+			if err != nil || e.IsDir() || !strings.EqualFold(filepath.Ext(f), ".mp3") {
+				return err
+			}
+			from, err := id3.Upgrade(f, *dryRun)
+			switch {
+			case err != nil:
+				failed++
+				fmt.Printf("FAILED %s: %v\n", f, err)
+			case from == 0:
+				fmt.Printf("no tag     %s\n", f)
+			case from == 4:
+				fmt.Printf("v2.4       %s\n", f)
+			case *dryRun:
+				fmt.Printf("v2.%d       %s (would upgrade)\n", from, f)
+			default:
+				fmt.Printf("v2.%d → 2.4 %s\n", from, f)
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+	if failed > 0 {
+		return fmt.Errorf("%d files failed", failed)
+	}
+	return nil
 }
 
 func emit(d id3.Doc, asYAML bool) error {

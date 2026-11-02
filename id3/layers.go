@@ -30,16 +30,30 @@ func Resolve(paths ...string) (Doc, error) {
 func ResolveLayers(layers ...map[string]any) (Doc, error) {
 	merged := map[string]any{}
 	for _, l := range layers {
-		merged = Merge(merged, unwrap(l))
+		inner, err := unwrap(l)
+		if err != nil {
+			return Doc{}, err
+		}
+		merged = Merge(merged, inner)
 	}
 	return DocFromMap(merged)
 }
 
-func unwrap(m map[string]any) map[string]any {
-	if inner, ok := m["audio_metadata"].(map[string]any); ok {
-		return inner
+// unwrap returns the `audio_metadata:` envelope's contents, or m without one.
+// An envelope that isn't a single mapping (e.g. pasted twice, which collects
+// into a list) is an error rather than an empty layer.
+func unwrap(m map[string]any) (map[string]any, error) {
+	v, ok := m["audio_metadata"]
+	if !ok {
+		return m, nil
 	}
-	return m
+	switch inner := v.(type) {
+	case map[string]any:
+		return inner, nil
+	case []any:
+		return nil, fmt.Errorf("audio_metadata appears %d times; merge them into one block", len(inner))
+	}
+	return nil, fmt.Errorf("audio_metadata is %T, want a mapping", v)
 }
 
 // LoadLayer reads one YAML or JSON layer (JSON is YAML) into a map,
@@ -61,7 +75,11 @@ func LoadLayer(path string) (map[string]any, error) {
 	if m == nil {
 		return map[string]any{}, nil
 	}
-	return unwrap(m), nil
+	inner, err := unwrap(m)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return inner, nil
 }
 
 // nodeValue converts a YAML node to plain values. Unlike a straight decode it
